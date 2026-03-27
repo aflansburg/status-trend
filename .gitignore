@@ -2,5 +2,9 @@
 status-trend
 dist/
 
+# Go workspace (local-only)
+go.work
+go.work.sum
+
 # OS
 .DS_Store
