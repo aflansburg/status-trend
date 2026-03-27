@@ -79,10 +79,10 @@ Mouse support is also available: click to focus panes, click vendor names to swi
 
 The Trends pane provides deeper analysis over the last 8 weeks of incident data:
 
-- **Reliability** — Weekly incident count sparkline, color-coded by severity (green = 0, yellow = 1-2, orange = 3-5, red = 6+)
-- **MTTR** — Mean Time to Resolve per week, color-coded by duration
-- **Week over Week** — Incident count delta between current and previous week
-- **Severity Trend** — Ratio of severe vs mild incidents over a 2-week rolling window
+- **Reliability**: Weekly incident count sparkline, color-coded by severity (green = 0, yellow = 1-2, orange = 3-5, red = 6+)
+- **MTTR**: Mean Time to Resolve per week, color-coded by duration
+- **Week over Week**: Incident count delta between current and previous week
+- **Severity Trend**: Ratio of severe vs mild incidents over a 2-week rolling window
 
 ![Trends Detail](docs/assets/trends-detail.png)
 
