@@ -11,6 +11,13 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{.Version}}
+    hooks:
+      post:
+        - cmd: >-
+            {{ if eq .Os "darwin" }}
+            codesign --force --options runtime --sign "Developer ID Application: Abram Flansburg (3V2V2L73Z5)" {{ .Path }}
+            {{ end }}
+          output: true
 
 archives:
   - formats: ['tar.gz']
