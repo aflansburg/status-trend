@@ -2,7 +2,7 @@
 
 A terminal dashboard that visualizes outage and incident data from multiple vendor status pages. Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Gloss](https://github.com/charmbracelet/lipgloss).
 
-<img src="docs/assets/dashboard-overview.png" width="55%" alt="Dashboard Overview" />
+<img src="docs/assets/dashboard-overview.png" alt="Dashboard Overview" />
 
 ## Supported Vendors
 
@@ -73,7 +73,7 @@ The dashboard is organized into four panes:
 
 Mouse support is also available: click to focus panes, click vendor names to switch, and scroll within panes.
 
-<img src="docs/assets/help-screen.png" width="55%" alt="Help Screen" />
+<img src="docs/assets/help-screen.png" alt="Help Screen" />
 
 ### Trends Pane
 
