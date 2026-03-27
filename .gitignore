@@ -1,0 +1,6 @@
+# Binary
+status-trend
+dist/
+
+# OS
+.DS_Store
