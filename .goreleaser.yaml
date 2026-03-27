@@ -16,16 +16,16 @@ archives:
   - formats: ['tar.gz']
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
-brews:
-  - repository:
+homebrew_casks:
+  - name: status-trend
+    binaries:
+      - status-trend
+    homepage: "https://github.com/aflansburg/status-trend"
+    description: "Terminal dashboard for monitoring vendor status pages"
+    repository:
       owner: aflansburg
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/aflansburg/status-trend"
-    description: "Terminal dashboard for monitoring vendor status pages"
-    license: "MIT"
-    install: |
-      bin.install "status-trend"
 
 checksum:
   name_template: "checksums.txt"
