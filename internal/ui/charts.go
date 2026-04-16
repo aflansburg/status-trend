@@ -364,6 +364,131 @@ func renderComponents(components []api.Component) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderRegionOverview(regions []api.Region, incidents []api.Incident) string {
+	// Count active incidents per region
+	regionCounts := make(map[string]int)
+	regionWorst := make(map[string]string) // region code -> worst impact
+	impactSeverity := map[string]int{"none": 0, "minor": 1, "major": 2, "critical": 3}
+
+	for _, inc := range incidents {
+		if inc.Status == "resolved" || inc.Status == "postmortem" {
+			continue
+		}
+		regionCounts[inc.RegionCode]++
+		if impactSeverity[inc.Impact] > impactSeverity[regionWorst[inc.RegionCode]] {
+			regionWorst[inc.RegionCode] = inc.Impact
+		}
+	}
+
+	// Sort: impacted regions first (by severity desc), then alphabetical
+	type regionEntry struct {
+		Region api.Region
+		Active int
+		Worst  string
+	}
+	entries := make([]regionEntry, len(regions))
+	for i, r := range regions {
+		entries[i] = regionEntry{Region: r, Active: regionCounts[r.Code], Worst: regionWorst[r.Code]}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		si := impactSeverity[entries[i].Worst]
+		sj := impactSeverity[entries[j].Worst]
+		if si != sj {
+			return si > sj
+		}
+		return entries[i].Region.Code < entries[j].Region.Code
+	})
+
+	// Header
+	dotCol := lipgloss.NewStyle().Width(2).Render("")
+	nameCol := lipgloss.NewStyle().Foreground(colorDim).Width(28).Render("Region")
+	statusCol := lipgloss.NewStyle().Foreground(colorDim).Width(16).Render("Status")
+	header := fmt.Sprintf("%s %s %s", dotCol, nameCol, statusCol)
+
+	lines := []string{header}
+
+	for _, e := range entries {
+		display := e.Region.Name + " (" + e.Region.Code + ")"
+		if len(display) > 28 {
+			display = display[:25] + "..."
+		}
+
+		if e.Active > 0 {
+			dot := lipgloss.NewStyle().Foreground(impactColor(e.Worst)).Render("●")
+			name := lipgloss.NewStyle().Foreground(colorWhite).Width(28).Render(display)
+			label := fmt.Sprintf("%d active", e.Active)
+			styledStatus := lipgloss.NewStyle().Foreground(impactColor(e.Worst)).Width(16).Render(label)
+			lines = append(lines, fmt.Sprintf("%s %s %s", dot, name, styledStatus))
+		} else {
+			dot := lipgloss.NewStyle().Foreground(colorGreen).Render("●")
+			name := lipgloss.NewStyle().Foreground(colorDim).Width(28).Render(display)
+			styledStatus := lipgloss.NewStyle().Foreground(colorGreen).Width(16).Render("Operational")
+			lines = append(lines, fmt.Sprintf("%s %s %s", dot, name, styledStatus))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func renderRegionIncidents(incidents []api.Incident) string {
+	var lines []string
+
+	for _, inc := range incidents {
+		var indicator string
+		if inc.Status == "resolved" || inc.Status == "postmortem" {
+			indicator = resolvedIndicator.Render("✓")
+		} else {
+			indicator = activeIndicator.Render("●")
+		}
+
+		name := inc.Name
+		if len(name) > 44 {
+			name = name[:41] + "..."
+		}
+
+		age := formatAge(inc.CreatedAt)
+		nameStyled := lipgloss.NewStyle().Foreground(colorWhite).Render(name)
+		ageStyled := lipgloss.NewStyle().Foreground(colorDim).Render(age)
+		impactTag := lipgloss.NewStyle().
+			Foreground(impactColor(inc.Impact)).
+			Render(fmt.Sprintf("[%s]", inc.Impact))
+
+		lines = append(lines, fmt.Sprintf("  %s %s %s", indicator, nameStyled, impactTag))
+		lines = append(lines, fmt.Sprintf("    %s", ageStyled))
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(colorDim).Render("  No incidents"))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func renderRegionSummary(region api.Region) string {
+	header := lipgloss.NewStyle().Bold(true).Foreground(colorCyan).
+		Render(region.Name + " (" + region.Code + ")")
+
+	checkmark := lipgloss.NewStyle().Foreground(colorGreen).Bold(true).Render("✓")
+	status := lipgloss.NewStyle().Foreground(colorGreen).Bold(true).
+		Render("All Systems Operational")
+
+	detail := lipgloss.NewStyle().Foreground(colorDim).
+		Render("No incidents reported in this region\nfor the last 8 weeks.")
+
+	hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).
+		Render("Press [ ] to switch regions")
+
+	return strings.Join([]string{
+		header,
+		"",
+		checkmark + " " + status,
+		"",
+		detail,
+		"",
+		hint,
+	}, "\n")
+}
+
 func formatAge(t time.Time) string {
 	d := time.Since(t)
 	switch {

@@ -50,6 +50,7 @@ type Incident struct {
 	Shortlink        string           `json:"shortlink"`
 	StartedAt        time.Time        `json:"started_at"`
 	PageID           string           `json:"page_id"`
+	RegionCode       string           `json:"-"` // optional, for region-aware vendors
 	IncidentUpdates  []IncidentUpdate `json:"incident_updates"`
 	Components       []Component      `json:"components"`
 }

@@ -75,7 +75,13 @@ func (c *Client) FetchIncidents() (*IncidentsResponse, error) {
 type DashboardData struct {
 	Summary   *SummaryResponse
 	Incidents *IncidentsResponse
+	Regions   []Region // optional; vendors with region support populate this
 	FetchedAt time.Time
+}
+
+type Region struct {
+	Code string // e.g. "us-east-1"
+	Name string // e.g. "N. Virginia"
 }
 
 func (c *Client) FetchAll() (*DashboardData, error) {

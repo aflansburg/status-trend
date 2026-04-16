@@ -32,7 +32,9 @@ type Model struct {
 	tickTime  time.Time
 	panes     [numPanes]Pane
 	focusIdx  int
-	vendorIdx int
+	vendorIdx  int
+	regionIdx  int  // -1 = All Regions, 0+ = index into data.Regions
+	simplified bool // true when showing 2-pane view (region with no incidents)
 }
 
 // Messages
@@ -47,6 +49,7 @@ func NewModel() Model {
 		width:     100,
 		height:    40,
 		vendorIdx: 0,
+		regionIdx: -1, // All Regions
 	}
 	m.panes[0] = Pane{Title: "Component Health"}
 	m.panes[1] = Pane{Title: "Outages & Incidents Over Time"}
@@ -65,10 +68,75 @@ func (m *Model) switchVendor(idx int) tea.Cmd {
 	m.fetcher = api.Vendors[idx].NewFetcher()
 	m.state = stateLoading
 	m.data = nil
+	m.regionIdx = -1 // reset to All Regions
 	for i := range m.panes {
 		m.panes[i].Offset = 0
 	}
 	return fetchData(m.fetcher)
+}
+
+func (m *Model) hasRegions() bool {
+	return m.data != nil && len(m.data.Regions) > 0
+}
+
+func (m *Model) cycleRegion(delta int) {
+	if !m.hasRegions() {
+		return
+	}
+	// range: -1 (All) through len(regions)-1
+	count := len(m.data.Regions)
+	m.regionIdx += delta
+	if m.regionIdx < -1 {
+		m.regionIdx = count - 1
+	} else if m.regionIdx >= count {
+		m.regionIdx = -1
+	}
+	for i := range m.panes {
+		m.panes[i].Offset = 0
+	}
+	m.updatePaneContent()
+	// Clamp focus if we switched to simplified mode
+	if m.simplified && m.focusIdx >= 2 {
+		m.panes[m.focusIdx].Focused = false
+		m.focusIdx = 0
+		m.panes[0].Focused = true
+	}
+}
+
+func (m *Model) selectedRegionCode() string {
+	if m.regionIdx < 0 || m.data == nil || m.regionIdx >= len(m.data.Regions) {
+		return ""
+	}
+	return m.data.Regions[m.regionIdx].Code
+}
+
+func (m *Model) filteredIncidents() []api.Incident {
+	if m.data == nil {
+		return nil
+	}
+	all := m.data.Incidents.Incidents
+	code := m.selectedRegionCode()
+	if code == "" {
+		return all
+	}
+	var filtered []api.Incident
+	for _, inc := range all {
+		if inc.RegionCode == code {
+			filtered = append(filtered, inc)
+		}
+	}
+	return filtered
+}
+
+func (m *Model) filteredComponents() []api.Component {
+	if m.data == nil {
+		return nil
+	}
+	code := m.selectedRegionCode()
+	if code == "" {
+		return m.data.Summary.Components
+	}
+	return api.BuildAWSComponentsForRegion(m.data.Incidents.Incidents, code)
 }
 
 func (m *Model) layoutPanes() {
@@ -86,40 +154,62 @@ func (m *Model) layoutPanes() {
 	}
 	rightW := maxW - leftW
 
-	// title(1) + vendor bar(1) + footer(1) = 3 lines of chrome
-	bodyH := m.height - 3
+	// title(1) + vendor bar(1) + optional region bar(1) + footer(1)
+	chrome := 3
+	if m.hasRegions() {
+		chrome = 4
+	}
+	bodyH := m.height - chrome
 	if bodyH < 6 {
 		bodyH = 6
 	}
-	topH := bodyH / 2
-	botH := bodyH - topH
 
-	// Top row: Component Health (left) | Outages & Incidents (right)
-	m.panes[0].Width = leftW
-	m.panes[0].Height = topH
+	if m.simplified {
+		// 2-pane layout: Component Health (left) | Summary (right), full height
+		m.panes[0].Width = leftW
+		m.panes[0].Height = bodyH
+		m.panes[1].Width = rightW
+		m.panes[1].Height = bodyH
+	} else {
+		topH := bodyH / 2
+		botH := bodyH - topH
 
-	m.panes[1].Width = rightW
-	m.panes[1].Height = topH
+		// Top row: Component Health (left) | Outages & Incidents (right)
+		m.panes[0].Width = leftW
+		m.panes[0].Height = topH
+		m.panes[1].Width = rightW
+		m.panes[1].Height = topH
 
-	// Bottom row: Trends (left) | Impact & Recent (right)
-	m.panes[2].Width = leftW
-	m.panes[2].Height = botH
-
-	m.panes[3].Width = rightW
-	m.panes[3].Height = botH
+		// Bottom row: Trends (left) | Impact & Recent (right)
+		m.panes[2].Width = leftW
+		m.panes[2].Height = botH
+		m.panes[3].Width = rightW
+		m.panes[3].Height = botH
+	}
 }
 
 func (m *Model) paneAt(x, y int) int {
-	// Grid starts at Y=2 (title + vendor bar)
-	gridY := y - 2
+	// Grid starts at Y=2 (title + vendor bar) or Y=3 (+ region bar)
+	gridStart := 2
+	if m.hasRegions() {
+		gridStart = 3
+	}
+	gridY := y - gridStart
 	if gridY < 0 {
 		return -1
 	}
 
 	leftW := m.panes[0].Width
-	topH := m.panes[0].Height
-
 	isLeft := x < leftW
+
+	if m.simplified {
+		if isLeft {
+			return 0
+		}
+		return 1
+	}
+
+	topH := m.panes[0].Height
 	isTop := gridY < topH
 
 	switch {
@@ -196,13 +286,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.switchVendor(idx)
 		case "tab":
 			m.panes[m.focusIdx].Focused = false
-			m.focusIdx = (m.focusIdx + 1) % numPanes
+			maxPane := numPanes
+			if m.simplified {
+				maxPane = 2
+			}
+			m.focusIdx = (m.focusIdx + 1) % maxPane
 			m.panes[m.focusIdx].Focused = true
 			return m, nil
 		case "shift+tab":
 			m.panes[m.focusIdx].Focused = false
-			m.focusIdx = (m.focusIdx - 1 + numPanes) % numPanes
+			maxPane := numPanes
+			if m.simplified {
+				maxPane = 2
+			}
+			m.focusIdx = (m.focusIdx - 1 + maxPane) % maxPane
 			m.panes[m.focusIdx].Focused = true
+			return m, nil
+		case "[":
+			m.cycleRegion(-1)
+			return m, nil
+		case "]":
+			m.cycleRegion(1)
 			return m, nil
 		case "up", "k":
 			m.panes[m.focusIdx].ScrollUp(1)
@@ -277,12 +381,44 @@ func (m *Model) updatePaneContent() {
 		return
 	}
 
-	incidents := m.data.Incidents.Incidents
+	incidents := m.filteredIncidents()
+	components := m.filteredComponents()
 
-	// Pane 0: Component Health (top-left)
-	m.panes[0].SetContent(renderComponents(m.data.Summary.Components))
+	// AWS (and any vendor with regions) always uses simplified 2-pane layout
+	// since we don't have real historical data for trends
+	wasSimplified := m.simplified
+	m.simplified = m.hasRegions()
+	if m.simplified != wasSimplified {
+		m.layoutPanes()
+	}
 
-	// Pane 1: Outages by Time Window + Incidents by Day (top-right)
+	if m.simplified {
+		m.panes[0].Title = "Component Health"
+		m.panes[0].SetContent(renderComponents(components))
+
+		if m.regionIdx < 0 {
+			// All Regions: show region overview
+			m.panes[1].Title = "Region Overview"
+			m.panes[1].SetContent(renderRegionOverview(m.data.Regions, m.data.Incidents.Incidents))
+		} else if len(incidents) > 0 {
+			// Specific region with incidents
+			region := m.data.Regions[m.regionIdx]
+			m.panes[1].Title = region.Name + " (" + region.Code + ")"
+			m.panes[1].SetContent(renderRegionIncidents(incidents))
+		} else {
+			// Specific region, no incidents
+			region := m.data.Regions[m.regionIdx]
+			m.panes[1].Title = "Region Summary"
+			m.panes[1].SetContent(renderRegionSummary(region))
+		}
+		return
+	}
+
+	// Standard 4-pane view for non-region vendors
+	m.panes[0].Title = "Component Health"
+	m.panes[0].SetContent(renderComponents(components))
+
+	m.panes[1].Title = "Outages & Incidents Over Time"
 	chartWidth := m.panes[1].innerWidth() - 4
 	if chartWidth < 10 {
 		chartWidth = 10
@@ -291,10 +427,8 @@ func (m *Model) updatePaneContent() {
 	incidentChart := renderIncidentChart(incidents, chartWidth)
 	m.panes[1].SetContent(timeBuckets + "\n\n" + incidentChart)
 
-	// Pane 2: Trends (bottom-left)
 	m.panes[2].SetContent(renderTrends(incidents))
 
-	// Pane 3: Impact Breakdown + Recent Incidents (bottom-right)
 	impact := renderImpactBreakdown(incidents)
 	recent := renderRecentIncidents(incidents, 8)
 	m.panes[3].SetContent(impact + "\n\n" + recent)
@@ -389,6 +523,7 @@ func (m Model) viewHelp() string {
 		"",
 		section.Render("NAVIGATION"),
 		key.Render("  ←  →       ") + dim.Render("Switch between vendors"),
+		key.Render("  [  ]       ") + dim.Render("Cycle regions (AWS)"),
 		key.Render("  tab        ") + dim.Render("Cycle focus to next pane"),
 		key.Render("  shift+tab  ") + dim.Render("Cycle focus to previous pane"),
 		key.Render("  ↑  ↓  j  k ") + dim.Render("Scroll focused pane"),
@@ -438,7 +573,7 @@ func (m Model) viewHelp() string {
 		section.Render("VENDORS"),
 		dim.Render("  Data is fetched live from each vendor's public status API."),
 		dim.Render("  Incident history covers the last 56 days (8 weeks) for full trend coverage."),
-		dim.Render("  Supported: Claude, OpenAI, Google Cloud AI, Cohere, GitHub, Vercel"),
+		dim.Render("  Supported: Claude, OpenAI, Google Cloud AI, AWS, Cohere, GitHub, Vercel"),
 		"",
 		lipgloss.NewStyle().Foreground(colorDim).Italic(true).Render("  Press h, ?, or esc to return to the dashboard"),
 	}
@@ -455,6 +590,44 @@ func (m Model) viewHelp() string {
 		lipgloss.Center, lipgloss.Center,
 		box,
 	)
+}
+
+func (m Model) renderRegionBar(maxW int) string {
+	if !m.hasRegions() {
+		return ""
+	}
+
+	label := lipgloss.NewStyle().Foreground(colorDim).Render("Region: ")
+	arrows := lipgloss.NewStyle().Foreground(colorDim)
+
+	var parts []string
+
+	// "All Regions" option
+	if m.regionIdx == -1 {
+		parts = append(parts, lipgloss.NewStyle().
+			Bold(true).Foreground(colorCyan).
+			Render("[ All Regions ]"))
+	} else {
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(colorDim).
+			Render("  All Regions  "))
+	}
+
+	for i, r := range m.data.Regions {
+		display := r.Name + " (" + r.Code + ")"
+		if i == m.regionIdx {
+			parts = append(parts, lipgloss.NewStyle().
+				Bold(true).Foreground(colorCyan).
+				Render("[ "+display+" ]"))
+		} else {
+			parts = append(parts, lipgloss.NewStyle().
+				Foreground(colorDim).
+				Render("  "+display+"  "))
+		}
+	}
+
+	bar := strings.Join(parts, "")
+	return label + arrows.Render("[ ") + bar + arrows.Render(" ]")
 }
 
 func (m Model) renderVendorBar(maxW int) string {
@@ -516,16 +689,24 @@ func (m Model) viewDashboard() string {
 	// Vendor selector bar
 	vendorBar := m.renderVendorBar(maxW)
 
-	// Pane grid (2x2)
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.panes[0].View(),
-		m.panes[1].View(),
-	)
-	botRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.panes[2].View(),
-		m.panes[3].View(),
-	)
-	grid := lipgloss.JoinVertical(lipgloss.Left, topRow, botRow)
+	// Pane grid
+	var grid string
+	if m.simplified {
+		grid = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.panes[0].View(),
+			m.panes[1].View(),
+		)
+	} else {
+		topRow := lipgloss.JoinHorizontal(lipgloss.Top,
+			m.panes[0].View(),
+			m.panes[1].View(),
+		)
+		botRow := lipgloss.JoinHorizontal(lipgloss.Top,
+			m.panes[2].View(),
+			m.panes[3].View(),
+		)
+		grid = lipgloss.JoinVertical(lipgloss.Left, topRow, botRow)
+	}
 
 	// Footer
 	activeCount := 0
@@ -540,8 +721,11 @@ func (m Model) viewDashboard() string {
 			activeIndicator.Render(fmt.Sprintf("%d", activeCount)),
 		))
 
-	help := lipgloss.NewStyle().Foreground(colorDim).Render(
-		"q quit  r refresh  ←→ vendor  tab panes  ↑↓ scroll  h help")
+	helpText := "q quit  r refresh  ←→ vendor  tab panes  ↑↓ scroll  h help"
+	if m.hasRegions() {
+		helpText = "q quit  r refresh  ←→ vendor  [] region  tab panes  ↑↓ scroll  h help"
+	}
+	help := lipgloss.NewStyle().Foreground(colorDim).Render(helpText)
 
 	footerPad := maxW - lipgloss.Width(stats) - lipgloss.Width(help)
 	if footerPad < 1 {
@@ -549,8 +733,12 @@ func (m Model) viewDashboard() string {
 	}
 	footer := stats + strings.Repeat(" ", footerPad) + help
 
-	// Build: title + vendor bar + grid, truncate, then append footer
-	upper := titleBar + "\n" + vendorBar + "\n" + grid
+	// Build: title + vendor bar + optional region bar + grid, truncate, then append footer
+	upper := titleBar + "\n" + vendorBar
+	if regionBar := m.renderRegionBar(maxW); regionBar != "" {
+		upper += "\n" + regionBar
+	}
+	upper += "\n" + grid
 	lines := strings.Split(upper, "\n")
 	maxUpperLines := m.height - 1
 	if len(lines) > maxUpperLines {
