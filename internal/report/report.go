@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"status-trend/internal/api"
+	"status-trend/internal/storage"
 )
 
 type vendorResult struct {
@@ -18,8 +19,9 @@ type vendorResult struct {
 	err  error
 }
 
-// WriteAll fetches data from all vendors and writes an LLM-friendly report to w.
-func WriteAll(w io.Writer) error {
+// fetchAllVendors fetches every vendor concurrently and returns the results in
+// vendor order.
+func fetchAllVendors() []vendorResult {
 	vendors := api.Vendors
 	results := make([]vendorResult, len(vendors))
 
@@ -34,6 +36,32 @@ func WriteAll(w io.Writer) error {
 		}(i, v)
 	}
 	wg.Wait()
+	return results
+}
+
+// recordResults persists each successful vendor result. Writes are serial, so
+// the storage mutex is never contended here.
+func recordResults(store *storage.Store, results []vendorResult) (ok, failed int) {
+	if store == nil {
+		return 0, 0
+	}
+	for _, r := range results {
+		if r.err != nil || r.data == nil {
+			continue
+		}
+		if err := store.Record(r.name, r.data); err != nil {
+			failed++
+			continue
+		}
+		ok++
+	}
+	return ok, failed
+}
+
+// WriteAll fetches data from all vendors and writes an LLM-friendly report to w.
+// When store is non-nil, each successful vendor is also recorded.
+func WriteAll(w io.Writer, store *storage.Store) error {
+	results := fetchAllVendors()
 
 	fmt.Fprintf(w, "# Status Report\n")
 	fmt.Fprintf(w, "Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339))
@@ -43,6 +71,31 @@ func WriteAll(w io.Writer) error {
 		fmt.Fprintln(w)
 	}
 
+	recordResults(store, results)
+	return nil
+}
+
+// RecordAll fetches every vendor, records each success to store, and prints a
+// one-line summary. It is the headless one-shot path (status-trend --once).
+func RecordAll(store *storage.Store, dbPath string, w io.Writer) error {
+	results := fetchAllVendors()
+
+	var fetchErrs []string
+	for _, r := range results {
+		if r.err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %s", r.name, r.err))
+		}
+	}
+
+	ok, failed := recordResults(store, results)
+
+	fmt.Fprintf(w, "recorded %d/%d vendors → %s\n", ok, len(results), dbPath)
+	if failed > 0 {
+		fmt.Fprintf(w, "  %d record errors\n", failed)
+	}
+	for _, e := range fetchErrs {
+		fmt.Fprintf(w, "  fetch error: %s\n", e)
+	}
 	return nil
 }
 

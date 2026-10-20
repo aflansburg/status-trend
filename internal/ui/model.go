@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"status-trend/internal/api"
+	"status-trend/internal/storage"
 )
 
 const numPanes = 4
@@ -35,6 +36,7 @@ type Model struct {
 	vendorIdx  int
 	regionIdx  int  // -1 = All Regions, 0+ = index into data.Regions
 	simplified bool // true when showing 2-pane view (region with no incidents)
+	store      *storage.Store // nil when recording is disabled
 }
 
 // Messages
@@ -42,7 +44,7 @@ type dataMsg struct{ data *api.DashboardData }
 type errMsg struct{ err error }
 type tickMsg time.Time
 
-func NewModel() Model {
+func NewModel(store *storage.Store) Model {
 	m := Model{
 		state:     stateLoading,
 		fetcher:   api.Vendors[0].NewFetcher(),
@@ -50,6 +52,7 @@ func NewModel() Model {
 		height:    40,
 		vendorIdx: 0,
 		regionIdx: -1, // All Regions
+		store:     store,
 	}
 	m.panes[0] = Pane{Title: "Component Health"}
 	m.panes[1] = Pane{Title: "Outages & Incidents Over Time"}
@@ -72,7 +75,7 @@ func (m *Model) switchVendor(idx int) tea.Cmd {
 	for i := range m.panes {
 		m.panes[i].Offset = 0
 	}
-	return fetchData(m.fetcher)
+	return fetchData(m.fetcher, api.Vendors[idx].Name, m.store)
 }
 
 func (m *Model) hasRegions() bool {
@@ -244,7 +247,7 @@ func (m *Model) vendorAt(x int) int {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(fetchData(m.fetcher), tickCmd())
+	return tea.Batch(fetchData(m.fetcher, m.currentVendor().Name, m.store), tickCmd())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -277,7 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.state = stateLoading
-			return m, fetchData(m.fetcher)
+			return m, fetchData(m.fetcher, m.currentVendor().Name, m.store)
 		case "left":
 			idx := (m.vendorIdx - 1 + len(api.Vendors)) % len(api.Vendors)
 			return m, m.switchVendor(idx)
@@ -749,11 +752,16 @@ func (m Model) viewDashboard() string {
 	return strings.Join(lines, "\n")
 }
 
-func fetchData(fetcher api.Fetcher) tea.Cmd {
+func fetchData(fetcher api.Fetcher, vendorName string, store *storage.Store) tea.Cmd {
 	return func() tea.Msg {
 		data, err := fetcher.FetchAll()
 		if err != nil {
 			return errMsg{err}
+		}
+		if store != nil {
+			// Record off the Update loop. Errors are swallowed: the TUI runs
+			// in alt-screen, so stray output would corrupt the display.
+			_ = store.Record(vendorName, data)
 		}
 		return dataMsg{data}
 	}
