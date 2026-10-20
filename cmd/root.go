@@ -45,7 +45,14 @@ var rootCmd = &cobra.Command{
 		case onceMode:
 			return report.RecordAll(store, path, os.Stdout)
 		case stdoutMode:
-			return report.WriteAll(os.Stdout, store)
+			res, err := report.WriteAll(os.Stdout, store)
+			if err != nil {
+				return err
+			}
+			if res.Status == report.StatusFailed {
+				fmt.Fprintf(os.Stderr, "report %s: %s: %v\n", res.ID, res.Status, res.Error)
+			}
+			return nil
 		default:
 			p := tea.NewProgram(ui.NewModel(store))
 			if _, err := p.Run(); err != nil {

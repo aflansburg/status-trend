@@ -3,11 +3,11 @@ package api
 import "time"
 
 type SummaryResponse struct {
-	Page                  Page                `json:"page"`
-	Components            []Component         `json:"components"`
-	Incidents             []Incident          `json:"incidents"`
-	ScheduledMaintenances []Incident          `json:"scheduled_maintenances"`
-	Status                StatusIndicator     `json:"status"`
+	Page                  Page            `json:"page"`
+	Components            []Component     `json:"components"`
+	Incidents             []Incident      `json:"incidents"`
+	ScheduledMaintenances []Incident      `json:"scheduled_maintenances"`
+	Status                StatusIndicator `json:"status"`
 }
 
 type IncidentsResponse struct {
@@ -39,20 +39,20 @@ type Component struct {
 }
 
 type Incident struct {
-	ID               string           `json:"id"`
-	Name             string           `json:"name"`
-	Status           string           `json:"status"`
-	CreatedAt        time.Time        `json:"created_at"`
-	UpdatedAt        time.Time        `json:"updated_at"`
-	MonitoringAt     *time.Time       `json:"monitoring_at"`
-	ResolvedAt       *time.Time       `json:"resolved_at"`
-	Impact           string           `json:"impact"`
-	Shortlink        string           `json:"shortlink"`
-	StartedAt        time.Time        `json:"started_at"`
-	PageID           string           `json:"page_id"`
-	RegionCode       string           `json:"-"` // optional, for region-aware vendors
-	IncidentUpdates  []IncidentUpdate `json:"incident_updates"`
-	Components       []Component      `json:"components"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Status          string           `json:"status"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+	MonitoringAt    *time.Time       `json:"monitoring_at"`
+	ResolvedAt      *time.Time       `json:"resolved_at"`
+	Impact          string           `json:"impact"`
+	Shortlink       string           `json:"shortlink"`
+	StartedAt       time.Time        `json:"started_at"`
+	PageID          string           `json:"page_id"`
+	RegionCode      string           `json:"-"` // optional, for region-aware vendors
+	IncidentUpdates []IncidentUpdate `json:"incident_updates"`
+	Components      []Component      `json:"components"`
 }
 
 type IncidentUpdate struct {

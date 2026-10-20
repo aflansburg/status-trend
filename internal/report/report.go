@@ -13,6 +13,35 @@ import (
 	"status-trend/internal/storage"
 )
 
+// status of report generation
+type Status int
+
+const (
+	StatusSuccess Status = iota
+	StatusPartial        // some vendors failed, report still generated
+	StatusFailed
+)
+
+// human readable representation
+func (s Status) String() string {
+	switch s {
+	case StatusSuccess:
+		return "success"
+	case StatusPartial:
+		return "partial"
+	case StatusFailed:
+		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
+type ReportResult struct {
+	Status Status
+	ID     string
+	Error  error
+}
+
 type vendorResult struct {
 	name string
 	data *api.DashboardData
@@ -60,19 +89,44 @@ func recordResults(store *storage.Store, results []vendorResult) (ok, failed int
 
 // WriteAll fetches data from all vendors and writes an LLM-friendly report to w.
 // When store is non-nil, each successful vendor is also recorded.
-func WriteAll(w io.Writer, store *storage.Store) error {
+func WriteAll(w io.Writer, store *storage.Store) (ReportResult, error) {
 	results := fetchAllVendors()
+	reportID := fmt.Sprintf("rpt-%s", time.Now().UTC().Format("20060102T150405Z"))
 
 	fmt.Fprintf(w, "# Status Report\n")
 	fmt.Fprintf(w, "Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
+	var fetchErrCount int
 	for _, r := range results {
+		if r.err != nil {
+			fetchErrCount++
+			fmt.Fprintf(w, "## %s\n - **Error** %s\n\n", r.name, r.err)
+			continue
+
+		}
 		writeVendor(w, r)
 		fmt.Fprintln(w)
 	}
 
-	recordResults(store, results)
-	return nil
+	_, failed := recordResults(store, results)
+
+	var status Status
+	var resultErr error
+	switch {
+	case len(results) > 0 && fetchErrCount == len(results):
+		status = StatusFailed
+		resultErr = fmt.Errorf("all %d vendors failed to fetch", len(results))
+	case fetchErrCount > 0 || failed > 0:
+		status = StatusPartial
+	default:
+		status = StatusSuccess
+	}
+
+	return ReportResult{
+		Status: status,
+		ID:     reportID,
+		Error:  resultErr,
+	}, nil
 }
 
 // RecordAll fetches every vendor, records each success to store, and prints a
