@@ -5,10 +5,11 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"status-trend/internal/api"
 	"status-trend/internal/storage"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const numPanes = 4
@@ -23,19 +24,19 @@ const (
 )
 
 type Model struct {
-	state     state
-	data      *api.DashboardData
-	err       error
-	fetcher   api.Fetcher
-	width     int
-	height    int
-	spinner   int
-	tickTime  time.Time
-	panes     [numPanes]Pane
-	focusIdx  int
+	state      state
+	data       *api.DashboardData
+	err        error
+	fetcher    api.Fetcher
+	width      int
+	height     int
+	spinner    int
+	tickTime   time.Time
+	panes      [numPanes]Pane
+	focusIdx   int
 	vendorIdx  int
-	regionIdx  int  // -1 = All Regions, 0+ = index into data.Regions
-	simplified bool // true when showing 2-pane view (region with no incidents)
+	regionIdx  int            // -1 = All Regions, 0+ = index into data.Regions
+	simplified bool           // true when showing 2-pane view (region with no incidents)
 	store      *storage.Store // nil when recording is disabled
 }
 
@@ -234,9 +235,9 @@ func (m *Model) vendorAt(x int) int {
 	for i, v := range api.Vendors {
 		var labelWidth int
 		if i == m.vendorIdx {
-			labelWidth = len("[ "+v.Name+" ]")
+			labelWidth = len("[ " + v.Name + " ]")
 		} else {
-			labelWidth = len("  "+v.Name+"  ")
+			labelWidth = len("  " + v.Name + "  ")
 		}
 		if x >= pos && x < pos+labelWidth {
 			return i
@@ -576,7 +577,7 @@ func (m Model) viewHelp() string {
 		section.Render("VENDORS"),
 		dim.Render("  Data is fetched live from each vendor's public status API."),
 		dim.Render("  Incident history covers the last 56 days (8 weeks) for full trend coverage."),
-		dim.Render("  Supported: Claude, OpenAI, Google Cloud AI, AWS, Cohere, GitHub, Vercel"),
+		dim.Render("  Supported: Claude, OpenAI, Google Cloud AI, AWS, GitHub, Vercel"),
 		"",
 		lipgloss.NewStyle().Foreground(colorDim).Italic(true).Render("  Press h, ?, or esc to return to the dashboard"),
 	}

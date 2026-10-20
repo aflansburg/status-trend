@@ -9,7 +9,6 @@ A terminal dashboard that visualizes outage and incident data from multiple vend
 - Claude
 - OpenAI
 - Google Cloud AI
-- Cohere
 - GitHub
 - Vercel
 
